@@ -1,187 +1,171 @@
 # ParkaSmart
 
-Smart parking management system built for shopping malls and commercial properties across Africa. Replaces handwritten ledger books and phone notepad entries with a structured digital platform — real-time vehicle logging, automated payment tracking, and instant SMS reporting via Africa's Talking.
+Parking operations for African commercial properties — replaces handwritten ledger books with a Next.js + Drizzle web app, USSD callback for offline use, and Africa's Talking SMS receipts.
 
-Built for the **Africa's Talking Real Estate Hackathon** (February 2026).
+**Built at:** Africa's Talking Real Estate Hackathon — February 2026
+**Built for:** OTC Wholesale Mall, Nairobi (and similar multi-tenant commercial properties)
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router, TypeScript) |
-| UI | Tailwind CSS v4, mobile-first responsive |
-| Database | SQLite via Drizzle ORM + better-sqlite3 |
-| SMS / USSD / Airtime | Africa's Talking Node.js SDK |
-| Runtime | Node.js 20+ |
+## The problem
 
-## Quick Start
+Walk into the parking attendant booth at a Nairobi mall and the system is usually a notebook and a phone. Plate numbers in handwriting. Payment status in someone's head. End-of-day totals reconciled by phone call to the manager. Tenants pay parking levies that never get tracked separately from walk-in drivers. Cash leaks. Receipts don't exist.
+
+ParkaSmart digitises the booth. A mobile-first web app for the attendant, a USSD fallback for when the booth Wi-Fi drops, SMS receipts to the driver, and a daily SMS report to the manager. Built specifically for properties with a fixed roster of tenant vehicles plus walk-in drivers — the OTC Wholesale Mall pattern.
+
+---
+
+## How it works
+
+```mermaid
+flowchart LR
+  Attendant[Mall attendant<br/>mobile web UI] -->|log entry| API[Next.js API<br/>/api/entries]
+  Driver[Driver<br/>basic phone] -->|*shortcode#| ATU[Africa's Talking<br/>USSD gateway]
+  ATU -->|callback| USSD[/api/ussd]
+  USSD --> API
+
+  API --> DB[(SQLite<br/>tenants + parking_entries)]
+
+  API -->|on entry| ATS[Africa's Talking<br/>SMS]
+  ATS --> DriverPhone[Driver phone:<br/>receipt SMS]
+
+  EOD[End-of-day trigger] --> Send[/api/reports/send]
+  Send --> ATS2[Africa's Talking SMS]
+  ATS2 --> Manager[Manager phone:<br/>daily report]
+```
+
+Three things make this work in the booth:
+
+1. **Plate autocomplete from tenant roster.** Attendant types `KDA`, and the form auto-fills name, phone, shop, and building for any registered tenant. Walk-in drivers get manual entry.
+2. **USSD fallback.** When the booth has no internet, the attendant (or driver) dials the shortcode and the same `/api/entries` endpoint accepts the entry from Africa's Talking's USSD callback.
+3. **Reference codes on every receipt.** Each entry generates a unique `PS-XXXX-XXXX` code so a tenant can dispute a charge with a single SMS.
+
+---
+
+## Tech stack
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Framework | Next.js 16 (App Router, TypeScript) | API routes + UI in one app simplifies the booth-attendant workflow |
+| UI | Tailwind CSS v4, mobile-first | Booth attendants work on mid-tier Android phones |
+| Database | SQLite via Drizzle ORM + better-sqlite3 | Zero ops for a hackathon; Drizzle's migration story makes Postgres an env-var change |
+| Telco | Africa's Talking Node SDK (SMS / USSD / Airtime) | Single SDK covers all three channels the booth actually uses |
+| Runtime | Node.js 20+ | Required by Next.js 16 |
+
+---
+
+## Quick start
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Configure environment
-cp .env.local.example .env.local
-# Edit .env.local with your Africa's Talking credentials
-
-# 3. Seed the database with sample tenants
-npm run seed
-
-# 4. Start dev server
-npm run dev
+cp .env.local.example .env.local   # fill in Africa's Talking credentials
+npm run seed                        # 5 sample OTC Mall tenants
+npm run dev                         # http://localhost:3000
 ```
 
-Open http://localhost:3000
+### Environment variables
 
-## Environment Variables
-
-Create a `.env.local` file in the project root:
-
-```
-AT_API_KEY=your_africastalking_api_key
-AT_USERNAME=sandbox
-AT_SENDER_ID=
-MANAGER_PHONE=+254XXXXXXXXX
+```env
+AT_API_KEY=...
+AT_USERNAME=sandbox          # or your live AT app username
+AT_SENDER_ID=                # blank for sandbox; alphanumeric for live
+MANAGER_PHONE=+254XXXXXXXXX  # receives the daily report
 ```
 
-- `AT_API_KEY` — API key from your Africa's Talking app settings
-- `AT_USERNAME` — `sandbox` for testing, or your live app username (e.g. `superiatech`)
-- `AT_SENDER_ID` — Leave empty for sandbox; set to your registered alphanumeric sender ID for live
-- `MANAGER_PHONE` — Phone number that receives end-of-day report SMS
+`AT_USERNAME=sandbox` routes traffic to `api.sandbox.africastalking.com`; anything else hits live. The API key must match the environment.
 
-**Important:** `AT_USERNAME` determines the API endpoint. `sandbox` hits `api.sandbox.africastalking.com`; anything else hits the live API. Make sure the API key matches the environment.
+---
 
-## Project Structure
+## Project layout
 
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # Screen 1: Vehicle Entry Form
-│   ├── log/page.tsx                # Screen 2: Today's Parking Log
-│   ├── report/page.tsx             # Screen 3: End-of-Day Report
-│   ├── admin/page.tsx              # Tenant Management (CRUD)
-│   ├── layout.tsx                  # Root layout with nav
-│   ├── globals.css                 # Tailwind config + CSS variables
+│   ├── page.tsx                  # Vehicle entry form
+│   ├── log/page.tsx              # Today's parking log
+│   ├── report/page.tsx           # End-of-day dashboard
+│   ├── admin/page.tsx            # Tenant CRUD
 │   └── api/
-│       ├── tenants/
-│       │   ├── route.ts            # GET (list all), POST (create), PUT (update)
-│       │   └── search/route.ts     # GET ?plate= (autocomplete)
-│       ├── entries/
-│       │   ├── route.ts            # GET (today's entries), POST (create + SMS)
-│       │   └── [id]/pay/route.ts   # PUT (mark as paid)
-│       ├── reports/
-│       │   ├── today/route.ts      # GET (aggregated daily summary)
-│       │   └── send/route.ts       # POST (SMS report to manager)
-│       └── ussd/route.ts           # POST (USSD callback handler)
+│       ├── tenants/              # tenant list, create, update, autocomplete
+│       ├── entries/              # entry list, create (+ SMS), mark paid
+│       ├── reports/              # daily summary, send SMS to manager
+│       └── ussd/route.ts         # Africa's Talking USSD callback
 ├── components/
-│   ├── vehicle-entry-form.tsx      # Plate autocomplete, validation, entry submission
-│   ├── parking-log-table.tsx       # Table (desktop) / card list (mobile) with filters
-│   ├── report-dashboard.tsx        # Revenue cards, breakdown, CSV export
-│   ├── tenant-admin.tsx            # Tenant CRUD with table/card views
-│   └── nav.tsx                     # Top nav (desktop) + bottom tab bar (mobile)
+│   ├── vehicle-entry-form.tsx    # Plate autocomplete + validation
+│   ├── parking-log-table.tsx     # Desktop table / mobile cards
+│   ├── report-dashboard.tsx      # Revenue + breakdown + CSV export
+│   └── tenant-admin.tsx
 ├── db/
-│   ├── schema.ts                   # Drizzle schema: tenants + parking_entries
-│   ├── index.ts                    # DB connection (auto-creates tables)
-│   └── seed.ts                     # Seeds 5 sample OTC Mall tenants
+│   ├── schema.ts                 # Drizzle: tenants + parking_entries
+│   ├── index.ts                  # Connection + auto-init
+│   └── seed.ts                   # OTC Mall sample tenants
 └── lib/
-    ├── africastalking.ts           # AT SDK wrapper: sendReceipt, sendDailyReport, sendAirtime
-    └── utils.ts                    # Ref code gen, date helpers, plate validation, cn()
+    ├── africastalking.ts         # sendReceipt, sendDailyReport, sendAirtime
+    └── utils.ts                  # Ref codes, plate validation, date helpers
 ```
 
-## Database Schema
+---
 
-### tenants
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | INTEGER PK | Auto-increment |
-| plate_number | TEXT UNIQUE | Lookup key for autocomplete |
-| name | TEXT | Tenant name |
-| phone | TEXT | For SMS receipts |
-| shop_number | TEXT | e.g. 015, 051 |
-| floor_code | TEXT | e.g. F2B, GA, GC |
-| building | TEXT | OTC Mall, Mathai S |
-| monthly_rate | INTEGER | Default 300 Ksh |
-| is_active | BOOLEAN | Soft delete |
-
-### parking_entries
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | INTEGER PK | Auto-increment |
-| plate_number | TEXT | Vehicle plate |
-| driver_name | TEXT | From tenant or manual entry |
-| phone | TEXT | For SMS receipt |
-| shop_number | TEXT | Tenant shop |
-| building | TEXT | OTC Mall, Mathai S |
-| tenant_type | TEXT | `tenant` / `non-tenant` / `motorcycle` |
-| payment_method | TEXT | `cash` / `mpesa` |
-| amount_paid | INTEGER | In Ksh |
-| is_paid | BOOLEAN | Default false |
-| entry_time | TEXT | ISO 8601 timestamp |
-| reference_code | TEXT | Unique ref (e.g. PS-MM3BUC8O-KNK0) |
-
-## API Reference
+## API surface
 
 ### Tenants
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/tenants` | List all tenants |
-| POST | `/api/tenants` | Create tenant `{plateNumber, name, phone, shopNumber, floorCode, building}` |
-| PUT | `/api/tenants` | Update tenant `{id, ...fields}` |
-| GET | `/api/tenants/search?plate=KDA` | Autocomplete search (min 2 chars) |
+| POST | `/api/tenants` | Create tenant |
+| PUT | `/api/tenants` | Update tenant by id |
+| GET | `/api/tenants/search?plate=KDA` | Autocomplete (min 2 chars) |
 
 ### Entries
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/entries` | Today's entries. Filters: `?building=&tenantType=&paymentMethod=&search=` |
-| POST | `/api/entries` | Create entry `{plateNumber, driverName, phone, shopNumber, building, tenantType, paymentMethod, amountPaid, isPaid}`. Fires SMS receipt if phone provided. |
-| PUT | `/api/entries/[id]/pay` | Mark entry as paid `{paymentMethod?, amountPaid?}` |
+| GET | `/api/entries` | Today's entries; filters: `building`, `tenantType`, `paymentMethod`, `search` |
+| POST | `/api/entries` | Create entry; fires SMS receipt if phone provided |
+| PUT | `/api/entries/[id]/pay` | Mark as paid |
 
 ### Reports
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/reports/today` | Aggregated daily summary (counts, revenue, building breakdown) |
-| POST | `/api/reports/send` | Send daily report SMS to MANAGER_PHONE |
+| GET | `/api/reports/today` | Aggregated daily summary |
+| POST | `/api/reports/send` | Send daily report SMS to `MANAGER_PHONE` |
 
 ### USSD
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/ussd` | Africa's Talking USSD callback. Accepts `sessionId`, `phoneNumber`, `text` as form data. |
+| POST | `/api/ussd` | Africa's Talking USSD callback (form-encoded: `sessionId`, `phoneNumber`, `text`) |
 
-USSD menu flow:
-1. Log Vehicle Entry (enter plate, confirm payment)
-2. Check Today's Total (vehicle count + revenue)
-3. Mark Vehicle as Paid (enter plate)
+USSD menu: (1) Log vehicle entry, (2) Check today's total, (3) Mark vehicle as paid.
 
-## Key Features
+---
 
-- **Plate Autocomplete** — Type a plate number, registered tenants auto-fill name, phone, shop, building
-- **Kenyan Plate Validation** — Auto-formats input to `KXX 000X` pattern with real-time feedback
-- **SMS Receipts** — Structured receipt sent to driver on entry via Africa's Talking
-- **Daily Reports** — Aggregated dashboard with send-to-manager SMS and CSV export
-- **USSD Fallback** — Log vehicles and check totals with zero internet via USSD
-- **Mobile-First UI** — Bottom tab nav, card layouts on mobile, table views on desktop
-- **Airtime Rewards** — API-ready for monthly on-time payment airtime rewards
+## Data model
+
+**tenants** — `id`, `plate_number` (unique), `name`, `phone`, `shop_number`, `floor_code`, `building`, `monthly_rate`, `is_active`
+
+**parking_entries** — `id`, `plate_number`, `driver_name`, `phone`, `shop_number`, `building`, `tenant_type` (`tenant` / `non-tenant` / `motorcycle`), `payment_method` (`cash` / `mpesa`), `amount_paid`, `is_paid`, `entry_time`, `reference_code`
+
+---
 
 ## Scripts
 
-| Script | Command | Description |
-|--------|---------|-------------|
-| Dev server | `npm run dev` | Start Next.js dev server on :3000 |
-| Build | `npm run build` | Production build |
-| Start | `npm start` | Start production server |
-| Seed DB | `npm run seed` | Seed 5 sample OTC Mall tenants |
-| Lint | `npm run lint` | Run ESLint |
+```bash
+npm run dev      # dev server on :3000
+npm run build    # production build (runs seed)
+npm start        # start production server
+npm run seed     # seed sample tenants
+npm run lint     # ESLint
+```
+
+---
 
 ## Deployment
 
-The app uses SQLite which stores data in `parkasmart.db` at the project root. For production:
+Production options:
 
-1. **Vercel/Render** — Works for demo; SQLite file is ephemeral on serverless (resets on redeploy)
-2. **VPS/Docker** — Persistent SQLite; mount the db file as a volume
-3. **PostgreSQL migration** — Swap `better-sqlite3` for `pg` in `src/db/index.ts` and update Drizzle config. Schema is migration-ready.
+- **Vercel/Render** — works for the demo, but SQLite is ephemeral on serverless platforms and resets on each deploy. Fine for hackathon judging; not for real operations.
+- **VPS + Docker** — mount the SQLite file as a volume; recommended for a single property.
+- **Postgres migration** — swap `better-sqlite3` for `pg` in `src/db/index.ts` and update the Drizzle config. The schema is migration-ready.
+
+---
+
+Built by **Kenn Macharia** — [SuperiaTech](https://superiatech.vercel.app/)
