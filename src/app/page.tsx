@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import PlateCamera from "@/components/plate-camera";
 
 interface ReportData {
   totalVehicles: number;
@@ -73,6 +75,7 @@ const quickActions = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const [stats, setStats] = useState<ReportData | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,6 +170,13 @@ export default function Home() {
               </div>
             </Link>
           ))}
+          <PlateCamera
+            variant="card"
+            onPlateDetected={(chars) => {
+              const plate = chars.join("");
+              router.push(`/entry?plate=${encodeURIComponent(plate)}`);
+            }}
+          />
         </div>
       </div>
 

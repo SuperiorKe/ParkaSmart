@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { Tenant } from "@/db/schema";
 import { isValidPlateNumber, isPartiallyValidPlate, cn } from "@/lib/utils";
+import PlateCamera from "@/components/plate-camera";
 
 const TENANT_TYPES = [
   { value: "tenant", label: "Tenant", defaultAmount: 300 },
@@ -17,7 +18,11 @@ const SLOT_TYPES: ("letter" | "digit")[] = [
 ];
 const PLATE_HINTS = ["K", "A", "A", "0", "0", "0", "A"];
 
-export default function VehicleEntryForm() {
+interface VehicleEntryFormProps {
+  initialPlate?: string;
+}
+
+export default function VehicleEntryForm({ initialPlate }: VehicleEntryFormProps) {
   const [plateChars, setPlateChars] = useState<string[]>(Array(7).fill(""));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [driverName, setDriverName] = useState("");
@@ -47,6 +52,33 @@ export default function VehicleEntryForm() {
 
   const plateValid = isValidPlateNumber(plateNumber);
   const platePartial = isPartiallyValidPlate(plateNumber);
+
+  useEffect(() => {
+    if (!initialPlate) return;
+    const raw = initialPlate.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    const next = Array(7).fill("");
+    let j = 0;
+    for (let i = 0; i < 7 && j < raw.length; j++) {
+      const ch = raw[j];
+      const type = SLOT_TYPES[i];
+      if (
+        (type === "letter" && /^[A-Z]$/.test(ch)) ||
+        (type === "digit" && /^\d$/.test(ch))
+      ) {
+        next[i] = ch;
+        i++;
+      }
+    }
+    setPlateChars(next);
+    setPlateTouched(true);
+  }, [initialPlate]);
+
+  function setPlateFromCamera(chars: string[]) {
+    setPlateChars(chars);
+    setPlateTouched(true);
+    const firstEmpty = chars.findIndex((c) => !c);
+    inputRefs.current[firstEmpty >= 0 ? firstEmpty : 6]?.focus();
+  }
 
   const searchTenants = useCallback(async (query: string) => {
     if (query.length < 3 || !isPartiallyValidPlate(query)) {
@@ -226,9 +258,12 @@ export default function VehicleEntryForm() {
 
       {/* Plate Number — Code Input */}
       <div className="relative" onBlur={handlePlateAreaBlur}>
-        <label className="block text-sm font-medium text-foreground mb-2">
-          Plate Number
-        </label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-foreground">
+            Plate Number
+          </label>
+          <PlateCamera variant="icon" onPlateDetected={setPlateFromCamera} />
+        </div>
         <div className="flex items-center justify-center gap-1.5 sm:gap-2">
           {[0, 1, 2].map((i) => (
             <input

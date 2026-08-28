@@ -1,6 +1,13 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import VehicleEntryForm from "@/components/vehicle-entry-form";
 
-export default function EntryPage() {
+function EntryContent() {
+  const searchParams = useSearchParams();
+  const plate = searchParams.get("plate") || undefined;
+
   return (
     <div className="max-w-lg mx-auto">
       <div className="mb-6">
@@ -11,8 +18,25 @@ export default function EntryPage() {
       </div>
 
       <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-        <VehicleEntryForm />
+        <VehicleEntryForm initialPlate={plate} />
       </div>
     </div>
+  );
+}
+
+export default function EntryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-lg mx-auto">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-foreground">Log Vehicle Entry</h1>
+            <p className="text-muted text-sm mt-1">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <EntryContent />
+    </Suspense>
   );
 }
